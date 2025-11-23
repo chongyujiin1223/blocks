@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>3D 积木拼图 - 移动版</title>
+    <style>
+        body { margin: 0; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; user-select: none; -webkit-touch-callout: none; background: #f0f0f0; }
+        #canvas-container { width: 100vw; height: 100vh; display: block; touch-action: none; }
+        
+        /* UI Overlay */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            box-sizing: border-box;
+            z-index: 10;
+        }
+
+        #header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            padding: 15px;
+            background: linear-gradient(to bottom, rgba(255,255,255,0.9), rgba(255,255,255,0));
+            pointer-events: none; /* 让头部穿透点击 */
+        }
+
+        .panel {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(5px);
+            padding: 10px 15px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            pointer-events: auto;
+            border: 1px solid #ddd;
+        }
+
+        h1 { margin: 0; font-size: 18px; color: #333; font-weight: 700; }
+        p { margin: 5px 0; color: #666; font-size: 12px; }
+        
+        /* 顶部控制区 */
+        #level-controls {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 8px;
+            pointer-events: auto;
+        }
+
+        select#level-select {
+            padding: 8px;
+            font-size: 14px;
+            border-radius: 8px;
+            border: 1px solid #ccc;
+            background: #fff;
+            font-weight: bold;
+            color: #333;
+            max-width: 150px;
+        }
+
+        button.text-btn {
+            background: #333;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+        }
+
+        #progress-bar {
+            width: 100px;
+            height: 6px;
+            background: #eee;
+            border-radius: 3px;
+            overflow: hidden;
+            border: 1px solid #ddd;
+        }
+        #progress-fill {
+            height: 100%;
+            width: 0%;
+            background: #4CAF50;
+            transition: width 0.3s;
+        }
+
+        /* 移动端底部控制栏 */
+        #mobile-controls {
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            pointer-events: none; /* 容器穿透 */
+        }
+
+        .control-group {
+            pointer-events: auto; /* 按钮可点击 */
+            display: flex;
+            gap: 10px;
+        }
+
+        .control-group.vertical {
+            flex-direction: column;
+        }
+
+        .control-btn {
+            width: 50px;
+            height: 50px;
+            border-radius: 25px;
+            background: rgba(255, 255, 255, 0.9);
+            border: 1px solid #ccc;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+            font-size: 14px;
+            font-weight: bold;
+            color: #333;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            active: scale(0.95);
+            transition: all 0.1s;
+            backdrop-filter: blur(4px);
+        }
+
+        .control-btn:active {
+            background: #eee;
+            transform: scale(0.95);
+        }
+
+        .control-btn.active-mode {
+            background: #4CAF50;
+            color: white;
+            border-color: #388E3C;
+        }
+
+        .big-btn {
+            width: 60px;
+            height: 60px;
+            border-radius: 30px;
+            font-size: 24px;
+        }
+
+        #mode-hint {
+            position: absolute;
+            bottom: 80px;
+            left: 20px;
+            background: rgba(0,0,0,0.6);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        #win-modal {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 30px;
+            border-radius: 20px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+            text-align: center;
+            display: none;
+            pointer-events: auto;
+            z-index: 100;
+            width: 80%;
+            max-width: 300px;
+        }
+        #win-modal h2 { margin-top: 0; color: #4CAF50; font-size: 24px; }
+        
+        .modal-btn {
+            background: #222;
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 25px;
+            font-size: 16px;
+            margin-top: 15px;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div id="canvas-container"></div>
+
+    <div id="ui-layer">
+        <div id="header">
+            <div class="panel">
+                <h1>3D 积木拼图</h1>
+                <p>单指拖动积木 / 空白处旋转</p>
+            </div>
+            <div id="level-controls">
+                <select id="level-select"></select>
+                <div id="progress-bar"><div id="progress-fill"></div></div>
+                <button id="reset-btn" class="text-btn">重置</button>
+            </div>
+        </div>
+
+        <div id="mode-hint">当前模式: 垂直升降</div>
+
+        <div id="mobile-controls">
+            <div class="control-group">
+                <!-- 垂直/水平切换 -->
+                <button id="toggle-mode-btn" class="control-btn big-btn" onclick="toggleMoveMode()">
+                    ↔
+                </button>
+            </div>
+            
+            <div class="control-group vertical">
+                <!-- 旋转按钮 -->
+                <button class="control-btn" onclick="rotateSelected('x')">X°</button>
+                <button class="control-btn" onclick="rotateSelected('y')">Y°</button>
+                <button class="control-btn" onclick="rotateSelected('z')">Z°</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="win-modal">
+        <h2>🎉 挑战成功!</h2>
+        <p>结构完美契合。</p>
+        <button id="next-level-btn" class="modal-btn">下一关</button>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // --- 游戏配置 ---
+        const CONFIG = {
+            gridSize: 1.0, 
+            bounds: { xMin: -15, xMax: 15, yMin: 0, yMax: 20, zMin: -15, zMax: 15 },
+            colors: [
+                0xE57373, 0x64B5F6, 0x81C784, 0xFFD54F, 0xBA68C8, 0xFF8A65, 
+                0x4DD0E1, 0xAED581, 0xFFB74D, 0x9575CD, 0x7986CB, 0x4DB6AC
+            ]
+        };
+
+        let scene, camera, renderer;
+        let pieces = []; 
+        let targetArea = null; 
+        let targetVoxels = new Set(); 
+        
+        // 交互状态
+        let draggedObject = null;
+        let selectedObject = null; // 当前选中的积木（用于点击按钮旋转）
+        let isVerticalMode = false; // false=水平移动, true=垂直移动
+        
+        // 触控相关变量
+        let lastTouchX = 0, lastTouchY = 0;
+        let lastPinchDist = 0;
+        let isOrbiting = false;
+        let isDraggingPiece = false;
+        
+        const raycaster = new THREE.Raycaster();
+        const touchPos = new THREE.Vector2();
+        const dragPlane = new THREE.Plane();
+        const intersection = new THREE.Vector3();
+        const offset = new THREE.Vector3();
+
+        let currentLevelIndex = 0;
+        
+        // 相机参数
+        let theta = Math.PI / 4, phi = Math.PI / 3, radius = 35;
+
+        // --- 关卡定义工具 ---
+        function defineLevel(name, solutionPieces) {
+            const target = [];
+            const pieces = [];
+            solutionPieces.forEach((voxels, index) => {
+                target.push(...voxels);
+                let minX = Infinity, minY = Infinity, minZ = Infinity;
+                voxels.forEach(v => {
+                    if(v[0] < minX) minX = v[0];
+                    if(v[1] < minY) minY = v[1];
+                    if(v[2] < minZ) minZ = v[2];
+                });
+                const shape = voxels.map(v => [v[0]-minX, v[1]-minY, v[2]-minZ]);
+                pieces.push({ shape: shape, color: index });
+            });
+            return { name, target, pieces };
+        }
+
+        // --- 关卡数据 (精选适合移动端操作的) ---
+        const LEVELS = [
+            defineLevel("1. 立体角柱", [[[0,0,0], [1,0,0], [0,1,0], [0,0,1]], [[1,1,1], [0,1,1], [1,0,1], [1,1,0]]]),
+            defineLevel("2. 鲁班锁基础", [[[1,0,0], [1,1,0], [1,2,0], [0,1,0], [2,1,0]], [[1,1,1], [1,1,2], [0,1,1], [2,1,1], [1,0,1]], [[0,0,0], [0,0,1], [2,0,0], [2,0,1], [1,0,1]]]),
+            defineLevel("3. L型对拼", [[[0,0,0], [1,0,0], [0,1,0], [0,0,1], [1,0,1]], [[1,1,1], [0,1,1], [1,0,1], [1,1,0], [0,1,0]]]),
+            defineLevel("4. 井字塔", [[[0,0,0], [2,0,0], [0,2,0], [2,2,0], [1,1,0]], [[0,0,1], [2,0,1], [0,2,1], [2,2,1], [1,1,1]], [[0,0,2], [2,0,2], [0,2,2], [2,2,2], [1,1,2]], [[1,0,0], [0,1,0], [2,1,0], [1,2,0], [1,0,1], [0,1,1]]]),
+            defineLevel("5. 蛇形缠绕", [[[0,0,0], [1,0,0], [1,1,0], [1,1,1], [2,1,1]], [[0,0,1], [0,1,1], [0,1,0], [0,2,0], [1,2,0]], [[2,0,0], [2,0,1], [2,1,0], [2,2,1], [1,2,1]]]),
+            defineLevel("6. 凹凸魔方", [[[0,0,0], [1,0,0], [0,1,0], [0,0,1], [1,1,0]], [[2,2,2], [1,2,2], [2,1,2], [2,2,1], [1,1,2]], [[0,2,0], [1,2,0], [0,2,1], [0,1,1], [1,1,1]], [[2,0,2], [1,0,2], [2,0,1], [2,1,1], [1,0,1]], [[2,0,0], [2,1,0], [2,2,0], [1,2,1], [1,0,0], [0,1,2], [0,2,2]]]),
+            defineLevel("7. 工业支架", [[[0,0,0], [0,1,0], [0,2,0], [1,0,0], [2,0,0]], [[2,2,0], [2,1,0], [1,2,0], [0,2,1], [0,2,2]], [[2,0,2], [2,0,1], [2,1,2], [1,0,2], [0,0,2]], [[1,1,1], [1,1,0], [1,1,2], [0,1,1], [2,1,1]]]),
+            defineLevel("8. 俄罗斯方块墙", [[[0,0,0], [1,0,0], [1,1,0], [2,1,0], [1,1,1]], [[0,1,0], [0,2,0], [1,2,0], [0,1,1], [0,2,1]], [[2,0,0], [2,0,1], [1,0,1], [1,0,2], [2,0,2]], [[2,2,0], [2,2,1], [1,2,1], [2,1,1], [2,1,2]]]),
+            defineLevel("9. 空心立方体", [[[0,0,0], [1,0,0], [2,0,0], [0,1,0], [0,2,0]], [[0,0,1], [0,0,2], [1,0,2], [2,0,2], [2,0,1]], [[2,1,2], [2,2,2], [1,2,2], [0,2,2], [0,2,1]], [[2,2,1], [2,2,0], [1,2,0], [2,1,0], [2,1,1]]]),
+            defineLevel("10. 螺旋阶梯", [[[0,0,0], [1,0,0], [1,0,1], [0,0,1], [0,1,1]], [[0,2,2], [1,2,2], [1,2,1], [0,2,1], [1,1,1]], [[2,0,0], [2,1,0], [2,2,0], [2,2,1], [2,1,1]], [[0,1,0], [1,1,0], [2,1,0], [2,0,1], [2,0,2]]]),
+            defineLevel("11. 巨石阵", [[[0,0,0], [1,0,0], [2,0,0], [3,0,0], [0,1,0], [3,1,0], [0,0,1], [3,0,1]], [[0,0,2], [1,0,2], [2,0,2], [3,0,2], [0,1,2], [3,1,2], [0,0,3], [3,0,3]], [[1,1,0], [2,1,0], [1,1,2], [2,1,2]], [[1,2,1], [2,2,1], [1,2,0], [2,2,0], [1,2,2], [2,2,2]]]),
+            defineLevel("12. 摩天楼", [[[0,0,0], [1,0,0], [0,1,0], [1,1,0], [0,2,0], [1,2,0], [0,3,0], [1,3,0]], [[2,0,0], [2,1,0], [2,2,0], [2,0,1], [2,1,1], [2,2,1], [2,0,2], [2,1,2]], [[0,0,1], [1,0,1], [0,1,1], [1,1,1], [0,0,2], [1,0,2]], [[0,2,1], [1,2,1], [0,3,1], [1,3,1], [0,2,2], [1,2,2]]])
+        ];
+
+        // --- 初始化系统 ---
+        function init() {
+            const container = document.getElementById('canvas-container');
+
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xf0f0f0); 
+            scene.fog = new THREE.Fog(0xf0f0f0, 10, 80);
+
+            camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
+            
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            container.appendChild(renderer.domElement);
+
+            // 灯光
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+            scene.add(ambientLight);
+
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            dirLight.position.set(20, 30, 20); 
+            dirLight.castShadow = true;
+            dirLight.shadow.mapSize.width = 1024;
+            dirLight.shadow.mapSize.height = 1024;
+            dirLight.shadow.camera.left = -25;
+            dirLight.shadow.camera.right = 25;
+            dirLight.shadow.camera.top = 25;
+            dirLight.shadow.camera.bottom = -25;
+            scene.add(dirLight);
+
+            // 地面网格
+            const gridHelper = new THREE.GridHelper(60, 60, 0xdddddd, 0xeeeeee);
+            gridHelper.position.set(0.5, -0.5, 0.5); 
+            scene.add(gridHelper);
+
+            // 初始化UI
+            const levelSelect = document.getElementById('level-select');
+            LEVELS.forEach((level, index) => {
+                const option = document.createElement('option');
+                option.value = index;
+                option.text = level.name;
+                levelSelect.appendChild(option);
+            });
+            levelSelect.addEventListener('change', (e) => {
+                loadLevel(parseInt(e.target.value));
+                levelSelect.blur();
+            });
+
+            // 触摸事件监听 (绑定到 canvas)
+            const canvas = renderer.domElement;
+            canvas.addEventListener('touchstart', onTouchStart, { passive: false });
+            canvas.addEventListener('touchmove', onTouchMove, { passive: false });
+            canvas.addEventListener('touchend', onTouchEnd, { passive: false });
+
+            document.getElementById('reset-btn').addEventListener('click', () => loadLevel(currentLevelIndex));
+            document.getElementById('next-level-btn').addEventListener('click', nextLevel);
+
+            updateCamera();
+            loadLevel(0); 
+            animate();
+        }
+
+        function loadLevel(index) {
+            if (index < 0 || index >= LEVELS.length) index = 0;
+            document.getElementById('win-modal').style.display = 'none';
+            document.getElementById('next-level-btn').disabled = false;
+
+            if(targetArea) scene.remove(targetArea);
+            pieces.forEach(p => scene.remove(p));
+            pieces = [];
+            targetVoxels.clear();
+
+            currentLevelIndex = index;
+            document.getElementById('level-select').value = index;
+            const levelData = LEVELS[index];
+            document.getElementById('progress-fill').style.width = '0%';
+
+            // 目标线框
+            const bounds = getBounds(levelData.target);
+            const centerOffset = new THREE.Vector3(-(bounds.max.x + bounds.min.x) / 2, 0, -(bounds.max.z + bounds.min.z) / 2);
+
+            levelData.target.forEach(pos => {
+                targetVoxels.add(`${Math.round(pos[0]+centerOffset.x)},${Math.round(pos[1]+centerOffset.y)},${Math.round(pos[2]+centerOffset.z)}`);
+            });
+
+            const targetGroup = new THREE.Group();
+            const geometry = new THREE.BoxGeometry(CONFIG.gridSize, CONFIG.gridSize, CONFIG.gridSize);
+            const edges = new THREE.EdgesGeometry(geometry);
+            const lineMat = new THREE.LineBasicMaterial({ color: 0x333333, transparent: true, opacity: 0.5 });
+            const fillMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.05, depthWrite: false });
+            
+            levelData.target.forEach(v => {
+                const line = new THREE.LineSegments(edges, lineMat);
+                line.position.set(v[0], v[1], v[2]);
+                targetGroup.add(line);
+                const mesh = new THREE.Mesh(geometry, fillMat);
+                mesh.position.set(v[0], v[1], v[2]);
+                mesh.scale.setScalar(0.98); 
+                targetGroup.add(mesh);
+            });
+            
+            targetArea = targetGroup;
+            targetArea.position.copy(centerOffset).round();
+            scene.add(targetArea);
+
+            // 生成积木
+            levelData.pieces.forEach((pData, i) => {
+                const pieceGroup = createPieceGroup(pData.shape, CONFIG.colors[pData.color % CONFIG.colors.length]);
+                const angle = (i / levelData.pieces.length) * Math.PI * 2;
+                const r = 10;
+                pieceGroup.position.set(Math.round(Math.cos(angle) * r), 1, Math.round(Math.sin(angle) * r));
+                snapToGrid(pieceGroup);
+                
+                // 随机旋转
+                const rotY = Math.floor(Math.random() * 4);
+                pieceGroup.rotation.y = rotY * (Math.PI/2);
+                pieceGroup.updateMatrixWorld();
+                snapToGrid(pieceGroup);
+
+                pieceGroup.userData.originalShape = pData.shape;
+                pieceGroup.userData.id = i;
+
+                scene.add(pieceGroup);
+                pieces.push(pieceGroup);
+            });
+
+            selectedObject = null;
+        }
+
+        function createPieceGroup(shape, colorHex) {
+            const group = new THREE.Group();
+            const material = new THREE.MeshLambertMaterial({ color: colorHex, opacity: 0.95 });
+            let minX=Infinity, maxX=-Infinity, minY=Infinity, maxY=-Infinity, minZ=Infinity, maxZ=-Infinity;
+            shape.forEach(v => {
+                minX=Math.min(minX,v[0]); maxX=Math.max(maxX,v[0]);
+                minY=Math.min(minY,v[1]); maxY=Math.max(maxY,v[1]);
+                minZ=Math.min(minZ,v[2]); maxZ=Math.max(maxZ,v[2]);
+            });
+            const center = new THREE.Vector3((minX+maxX)/2+0.5, (minY+maxY)/2+0.5, (minZ+maxZ)/2+0.5);
+            shape.forEach(v => {
+                 const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.96, 0.96, 0.96), material);
+                 mesh.position.set(v[0], v[1], v[2]);
+                 mesh.castShadow = true; mesh.receiveShadow = true;
+                 group.add(mesh);
+            });
+            group.children.forEach(c => c.position.sub(center));
+            group.userData.centerOffset = center; 
+            return group;
+        }
+
+        function getBounds(voxels) {
+            let min = new THREE.Vector3(Infinity, Infinity, Infinity);
+            let max = new THREE.Vector3(-Infinity, -Infinity, -Infinity);
+            voxels.forEach(v => {
+                min.x=Math.min(min.x,v[0]); min.y=Math.min(min.y,v[1]); min.z=Math.min(min.z,v[2]);
+                max.x=Math.max(max.x,v[0]); max.y=Math.max(max.y,v[1]); max.z=Math.max(max.z,v[2]);
+            });
+            return { min, max };
+        }
+
+        function snapToGrid(object) {
+            const centerRaw = object.userData.centerOffset.clone().applyEuler(object.rotation);
+            object.position.x = Math.round(object.position.x - centerRaw.x) + centerRaw.x;
+            object.position.y = Math.round(object.position.y - centerRaw.y) + centerRaw.y;
+            object.position.z = Math.round(object.position.z - centerRaw.z) + centerRaw.z;
+        }
+
+        // --- 触控事件处理 ---
+
+        function onTouchStart(event) {
+            event.preventDefault(); // 防止滚动
+            
+            const touches = event.touches;
+            
+            if (touches.length === 1) {
+                // 单指操作：可能是拖拽物体，也可能是转动视角
+                const touch = touches[0];
+                lastTouchX = touch.clientX;
+                lastTouchY = touch.clientY;
+
+                // 射线检测
+                touchPos.x = (touch.clientX / window.innerWidth) * 2 - 1;
+                touchPos.y = -(touch.clientY / window.innerHeight) * 2 + 1;
+                raycaster.setFromCamera(touchPos, camera);
+
+                const intersects = raycaster.intersectObjects(pieces, true);
+                
+                if (intersects.length > 0) {
+                    // 选中物体
+                    isDraggingPiece = true;
+                    isOrbiting = false;
+                    draggedObject = intersects[0].object.parent;
+                    selectedObject = draggedObject; // 设为当前选中，供旋转按钮使用
+                    highlightSelected(draggedObject);
+
+                    // 计算拖拽偏移
+                    const normal = isVerticalMode 
+                        ? new THREE.Vector3(camera.position.x, 0, camera.position.z).normalize() 
+                        : new THREE.Vector3(0, 1, 0);
+                    dragPlane.setFromNormalAndCoplanarPoint(normal, draggedObject.position);
+                    
+                    if (raycaster.ray.intersectPlane(dragPlane, intersection)) {
+                        offset.copy(intersection).sub(draggedObject.position);
+                    }
+                    setPieceOpacity(draggedObject, 0.7);
+
+                } else {
+                    // 没有点中物体 -> 转动视角
+                    isDraggingPiece = false;
+                    isOrbiting = true;
+                }
+            } else if (touches.length === 2) {
+                // 双指操作 -> 缩放
+                isOrbiting = false;
+                isDraggingPiece = false;
+                const dx = touches[0].clientX - touches[1].clientX;
+                const dy = touches[0].clientY - touches[1].clientY;
+                lastPinchDist = Math.sqrt(dx*dx + dy*dy);
+            }
+        }
+
+        function onTouchMove(event) {
+            event.preventDefault();
+            const touches = event.touches;
+
+            if (touches.length === 1) {
+                const touch = touches[0];
+                const deltaX = touch.clientX - lastTouchX;
+                const deltaY = touch.clientY - lastTouchY;
+
+                if (isDraggingPiece && draggedObject) {
+                    // 拖拽物体逻辑
+                    touchPos.x = (touch.clientX / window.innerWidth) * 2 - 1;
+                    touchPos.y = -(touch.clientY / window.innerHeight) * 2 + 1;
+                    raycaster.setFromCamera(touchPos, camera);
+
+                    const normal = isVerticalMode 
+                        ? new THREE.Vector3(camera.position.x, 0, camera.position.z).normalize() 
+                        : new THREE.Vector3(0, 1, 0);
+                    dragPlane.setFromNormalAndCoplanarPoint(normal, draggedObject.position);
+
+                    if (raycaster.ray.intersectPlane(dragPlane, intersection)) {
+                        let targetPos = intersection.sub(offset);
+                        if(isVerticalMode) {
+                            draggedObject.position.y = Math.max(CONFIG.bounds.yMin, Math.min(CONFIG.bounds.yMax, targetPos.y));
+                        } else {
+                            draggedObject.position.x = Math.max(CONFIG.bounds.xMin, Math.min(CONFIG.bounds.xMax, targetPos.x));
+                            draggedObject.position.z = Math.max(CONFIG.bounds.zMin, Math.min(CONFIG.bounds.zMax, targetPos.z));
+                        }
+                    }
+
+                } else if (isOrbiting) {
+                    // 旋转视角逻辑
+                    theta -= deltaX * 0.005;
+                    phi += deltaY * 0.005;
+                    phi = Math.max(0.1, Math.min(Math.PI / 2 - 0.1, phi));
+                    updateCamera();
+                }
+
+                lastTouchX = touch.clientX;
+                lastTouchY = touch.clientY;
+
+            } else if (touches.length === 2) {
+                // 缩放逻辑
+                const dx = touches[0].clientX - touches[1].clientX;
+                const dy = touches[0].clientY - touches[1].clientY;
+                const dist = Math.sqrt(dx*dx + dy*dy);
+                
+                const delta = lastPinchDist - dist;
+                radius += delta * 0.1;
+                radius = Math.max(10, Math.min(60, radius));
+                updateCamera();
+                
+                lastPinchDist = dist;
+            }
+        }
+
+        function onTouchEnd(event) {
+            event.preventDefault();
+            if (isDraggingPiece && draggedObject) {
+                snapToGrid(draggedObject);
+                setPieceOpacity(draggedObject, 0.95);
+                checkWin();
+            }
+            isDraggingPiece = false;
+            isOrbiting = false;
+            draggedObject = null;
+        }
+
+        // --- 按钮功能 ---
+
+        function toggleMoveMode() {
+            isVerticalMode = !isVerticalMode;
+            const btn = document.getElementById('toggle-mode-btn');
+            const hint = document.getElementById('mode-hint');
+            
+            if (isVerticalMode) {
+                btn.innerHTML = "↕";
+                btn.classList.add('active-mode');
+                hint.innerText = "当前模式: 垂直升降";
+            } else {
+                btn.innerHTML = "↔";
+                btn.classList.remove('active-mode');
+                hint.innerText = "当前模式: 水平移动";
+            }
+            
+            // 显示提示 2秒
+            hint.style.opacity = 1;
+            setTimeout(() => hint.style.opacity = 0, 2000);
+        }
+
+        function rotateSelected(axis) {
+            if (!selectedObject) return;
+            
+            if (axis === 'x') selectedObject.rotation.x += Math.PI / 2;
+            if (axis === 'y') selectedObject.rotation.y += Math.PI / 2;
+            if (axis === 'z') selectedObject.rotation.z += Math.PI / 2;
+            
+            selectedObject.updateMatrixWorld();
+            snapToGrid(selectedObject);
+            checkWin();
+        }
+        
+        // --- 辅助视觉 ---
+        function highlightSelected(obj) {
+            pieces.forEach(p => {
+                p.children.forEach(c => c.material.emissive.setHex(0x000000));
+            });
+            if(obj) {
+                obj.children.forEach(c => c.material.emissive.setHex(0x333333));
+            }
+        }
+
+        function setPieceOpacity(group, opacity) {
+            group.children.forEach(c => c.material.opacity = opacity);
+        }
+
+        function checkWin() {
+            let occupiedVoxels = new Set();
+            let overlap = false;
+            let correctCount = 0;
+            const tempVec = new THREE.Vector3();
+
+            pieces.forEach(group => {
+                group.updateMatrixWorld();
+                group.children.forEach(mesh => {
+                    mesh.getWorldPosition(tempVec);
+                    const key = `${Math.round(tempVec.x)},${Math.round(tempVec.y)},${Math.round(tempVec.z)}`;
+                    if (occupiedVoxels.has(key)) overlap = true;
+                    occupiedVoxels.add(key);
+                    if (targetVoxels.has(key)) correctCount++;
+                });
+            });
+
+            const progress = (correctCount / targetVoxels.size) * 100;
+            document.getElementById('progress-fill').style.width = `${Math.min(100, progress)}%`;
+
+            if (!overlap && occupiedVoxels.size === targetVoxels.size && correctCount === targetVoxels.size) {
+                setTimeout(() => {
+                    document.getElementById('win-modal').style.display = 'block';
+                    triggerConfetti();
+                }, 300);
+            }
+        }
+
+        function nextLevel() {
+            document.getElementById('next-level-btn').disabled = true;
+            if (currentLevelIndex < LEVELS.length - 1) loadLevel(currentLevelIndex + 1);
+            else { alert("恭喜通关！"); loadLevel(0); }
+        }
+
+        function updateCamera() {
+            camera.position.x = radius * Math.sin(theta) * Math.cos(phi);
+            camera.position.y = radius * Math.sin(phi);
+            camera.position.z = radius * Math.cos(theta) * Math.cos(phi);
+            camera.lookAt(0, 0, 0);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            renderer.render(scene, camera);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function triggerConfetti() {
+            const colors = [0xE57373, 0x64B5F6, 0x81C784, 0xFFD54F];
+            for(let i=0; i<80; i++) {
+                const geo = new THREE.BoxGeometry(0.3, 0.3, 0.3);
+                const mat = new THREE.MeshBasicMaterial({ color: colors[Math.floor(Math.random()*colors.length)] });
+                const mesh = new THREE.Mesh(geo, mat);
+                mesh.position.copy(targetArea.position);
+                mesh.position.x += (Math.random()-0.5)*8; mesh.position.y += Math.random()*8+4; mesh.position.z += (Math.random()-0.5)*8;
+                scene.add(mesh);
+                const anim = () => {
+                    mesh.position.y -= 0.15; mesh.rotation.x+=0.2;
+                    if(mesh.position.y>-5) requestAnimationFrame(anim); else scene.remove(mesh);
+                };
+                anim();
+            }
+        }
+
+        init();
+    </script>
+</body>
+</html>
